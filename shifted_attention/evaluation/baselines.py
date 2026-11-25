@@ -11,6 +11,7 @@ import torch
 
 from .assets import AUTHOR_WEIGHTS, TIMRCD_HUB_REV, digest, metric_source, save_json
 from .inference import normalizer, starts
+from .author_attention import install as install_author_attention
 
 
 class Severity:
@@ -86,8 +87,9 @@ def tsb_multi_checkpoint(path):
 
 
 class AuthorTimeRCD:
-    def __init__(self,base,device,paper,width):
+    def __init__(self,base,device,paper,width,query_rows=128):
         self.device, self.paper, self.width = device,paper,width
+        self.query_rows = query_rows
         self.paths = {}
         for variant,wanted in AUTHOR_WEIGHTS.items():
             path = base/"author-weights"/f"pretrain_checkpoint_best_{variant}.pth"
@@ -102,6 +104,7 @@ class AuthorTimeRCD:
             source = metric_source(base,"TSBModel")
             sys.path.insert(0,str(source.resolve()))
             self.dispatch = importlib.import_module("TSB_AD.model_wrapper").run_Time_RCD
+            self.tsb_class = importlib.import_module("TSB_AD.models.Time_RCD").Time_RCD
             self.paths["multi"] = tsb_multi_checkpoint(self.paths["multi"])
         self.last_variant = None
         self.instance = None
@@ -119,16 +122,41 @@ class AuthorTimeRCD:
         if not np.isfinite(x).all():
             raise ValueError("The official baseline expects retained finite rows")
         variant = "uni" if x.shape[1]==1 else "multi"
-        if self.paper:
-            if variant!=self.last_variant:
-                self.instance = self.detector.from_local(
-                    self.paths[variant],variant=variant,win_size=self.width,batch_size=64,device=self.device)
-                self.last_variant = variant
-            result = self.instance.predict(x)
+        physical_batch = 1 if variant=="multi" else 64
+        layers = []
+        if self.paper or variant=="multi":
+            # The paper API and TSB dispatcher both construct this model from the intact full-width checkpoint.
+            instance_key = (variant,x.shape[1])
+            if instance_key!=self.last_variant:
+                self.instance = None
+                if self.paper:
+                    self.instance = self.detector.from_local(
+                        self.paths[variant],variant=variant,win_size=self.width,batch_size=physical_batch,device=self.device)
+                else:
+                    self.instance = self.tsb_class(win_size=self.width,input_c=x.shape[1],batch_size=physical_batch,
+                                                   device=self.device,checkpoint=self.paths[variant])
+                self.last_variant = instance_key
+            if variant=="multi":
+                if self.paper:
+                    self.instance._ensure_tester(x.shape[1])
+                    model = self.instance._tester.model
+                else:
+                    model = self.instance.model
+                layers = install_author_attention(model,query_rows=self.query_rows)
+            if self.paper:
+                result = self.instance.predict(x)
+            else:
+                self.instance.zero_shot(x)
+                result = self.instance.decision_scores_
         else:
             result = self.dispatch(x,win_size=self.width,batch_size=64,device=self.device,
                                    checkpoint=self.paths[variant])
         result = np.asarray(result,dtype=np.float64).reshape(-1)
         if len(result)!=len(x) or not np.isfinite(result).all():
             raise ValueError("Original TimeRCD output is misaligned/nonfinite")
+        self.execution = {"physical_batch_size":physical_batch,"native_batch_setting":64,
+                          "input_channels":x.shape[1],"input_rows":len(x),
+                          "query_tiles":[{"full_keys":keys,"query_rows":rows}
+                                         for keys,rows in sorted(set().union(*(l._eval_tiles for l in layers)))],
+                          "dense_layer_calls":sum(l._eval_dense_calls for l in layers) if layers else None}
         return result,np.ones(len(x),dtype=np.int32)

@@ -23,6 +23,8 @@ def main(argv=None):
         else:
             cmd.add_argument("--width", type=int)
             cmd.add_argument("--stride", type=int, default=None)
+            cmd.add_argument("--author-query-rows",type=int,default=128,
+                             help="Maximum exact query rows per tile on large multivariate original-model inputs")
             cmd.add_argument("--split", choices=["U","M","both"], default="both")
             if name == "timercd":
                 cmd.add_argument("--metric-engine",choices=["fast","default"],default="fast",

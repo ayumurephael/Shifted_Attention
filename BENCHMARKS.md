@@ -33,6 +33,10 @@ TimeRCD 表 1 与附录 D 表 8–9 给出 16 个来源。按作者提供的 TSB
 
 ### 可执行的真实数据对照
 
+**原版模型的显存与复核。** 两套原始多变量实现会为每层构造形状为 [B,H,L,L] 的通道偏置及注意力分数，其中 L = 通道数 × ceil(窗口行数 / 16)。实际执行把独立的多变量窗口按物理 batch=1 投递；论文或 TSB 配置中的 64 继续作为原始批大小记录。L 至多 2048 时使用作者原始注意力。更长的窗口在一次计算中保留完整 K/V 与完整掩码，依次处理不超过 128 个 Query。每行计算全部 L 个键的通道偏置、同一 softmax 和加权和，再应用原输出层；同一 score 临时张量上限 512 MiB。可用 --author-query-rows 调整查询分块。每文件的新结果在 inference_execution 记录实际物理批大小、各窗完整键数与查询块大小。旧版已完成的密集参考结果可沿用。
+
+在真实 SMD 数据和原作者多变量权重上，取 237 行、38 通道，形成 3 个独立 96 行窗口，其中最后一窗含补齐。比较作者原始批处理、原始注意力单窗和每块 37 行 Query 的单窗输出。论文 API 及 TSB 移植在 CPU FP32 上三组逐点概率的最大绝对误差均为 0。两套各 8 层、118 个命名参数在替换计算路径后保持张量存储与版本一致。可设置 AUTHOR_BASELINE_ASSETS 指向准备好的数据目录，执行 pytest tests/test_author_attention.py；设置 AUTHOR_BASELINE_DEVICE=cuda 可在目标 GPU 上复核数值误差。
+
 TSB-AD 的多变量移植将八层二值注意力偏置参数命名为 binary_attention_bias.embedding.weight，而公开的多变量权重将其命名为 binary_attention_bias.emd.weight。准备 TSB 原版对照时只对这八个键建立一一对应关系，在本地保存派生 state_dict，再逐张量使用 torch.equal 核对与原件完全一致。TSB 的严格加载继续校验完整的键与形状。目录中的 tsb-multi-strict.json 及输出登记保留原件指纹、派生件指纹和八个映射。
 
 ~~~bash

@@ -88,6 +88,23 @@ def test_resume_is_bit_exact(corpus,single,tmp_path):
         assert json.loads((single/key).read_text())==json.loads((tmp_path/key).read_text())
 
 
+def test_spawn_workers_read_real_tar_train_and_evaluation(corpus,tmp_path,monkeypatch):
+    from shifted_attention import train,validation
+    from torch.utils.data import DataLoader
+    seen=[]
+    def loader(*args,**kwargs):
+        assert kwargs["multiprocessing_context"]=="spawn" and kwargs["num_workers"]==2
+        seen.append(type(args[0]).__name__)
+        return DataLoader(*args,**kwargs)
+    monkeypatch.setattr(train,"DataLoader",loader)
+    monkeypatch.setattr(validation,"DataLoader",loader)
+    monkeypatch.setattr(sys,"argv",["shifted-train",*command(corpus,tmp_path)[3:],"--steps","1","--workers","2"])
+    train.main()
+    assert seen==["Corpus","Subset","Subset","Subset"]
+    result=json.loads((tmp_path/"complete.json").read_text())
+    assert result["step"]==1 and result["consumed"]==4 and result["point_ap"] is not None
+
+
 def test_two_rank_single_rank_parity(corpus,single,tmp_path):
     # Use the same env:// rendezvous as torchrun. Launching ranks directly also
     # works on Windows wheels with a TCPStore but without the elastic libuv backend.

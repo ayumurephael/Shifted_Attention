@@ -92,7 +92,8 @@ class TiedScores:
 def _write_rank(model, dataset, indices, path, device, batch_size, workers, save_points=False):
     device = torch.device(device)
     loader = DataLoader(Subset(dataset,indices),batch_size=batch_size,shuffle=False,
-                        collate_fn=collate,num_workers=workers,pin_memory=device.type=="cuda")
+                        collate_fn=collate,num_workers=workers,pin_memory=device.type=="cuda",
+                        multiprocessing_context="spawn" if workers else None)
     db = sqlite3.connect(path)
     writer = AncestorWriter(path.with_suffix(".points")) if save_points else None
     try:

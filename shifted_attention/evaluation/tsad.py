@@ -125,7 +125,7 @@ def run(args):
     engine = getattr(args,"metric_engine","official")
     period, compute = backend(base,paper,engine)
     if predictor_name=="author":
-        predictor = AuthorTimeRCD(base,args.device,paper,width)
+        predictor = AuthorTimeRCD(base,args.device,paper,width,args.author_query_rows)
         identity = predictor.identity
     elif predictor_name=="severity":
         predictor = Severity()
@@ -195,6 +195,8 @@ def run(args):
                "dropped_label_counts":original.loc[~original.index.isin(frame.index),"Label"].value_counts(dropna=False).rename(index=str).to_dict(),
                "metrics":met,"metric_status":status,"official_degenerate":official_degenerate,
                "scores_sha256":digest(score_file)}
+        if predictor_name=="author":
+            rec["inference_execution"] = predictor.execution
         if not paper:
             raw_y = original["Label"].to_numpy()
             known = np.isin(raw_y,[0,1])

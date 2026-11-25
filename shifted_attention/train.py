@@ -268,6 +268,7 @@ def run(args):
     sampler=RankIndices(train.table,args.seed,args.steps*args.global_batch,cursor,rank,world,effective)
     loader=DataLoader(train,batch_size=args.microbatch,sampler=sampler,collate_fn=collate,
                       pin_memory=device.type=="cuda",num_workers=args.workers,
+                      multiprocessing_context="spawn" if args.workers else None,
                       persistent_workers=args.workers>0,generator=torch.Generator().manual_seed(args.seed+rank))
     iterator=iter(loader)
     local_exposure=np.zeros_like(counts)
