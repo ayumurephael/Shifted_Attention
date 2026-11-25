@@ -2,10 +2,45 @@ import numpy as np
 import pytest
 import torch
 
+from shifted_attention.attention import StateLinear, _attention
 from shifted_attention.config import ModelConfig
 from shifted_attention.model import ShiftedAttentionModel
 from shifted_attention.physical_lags import accumulate_lags, head_lags, physical_lags
 from shifted_attention.precision import check_precision
+
+
+@pytest.mark.parametrize("dtype",[torch.float32,torch.float64])
+def test_state_linear_preserves_full_precision_and_checkpoint_layout(dtype):
+    torch.manual_seed(318)
+    projection=StateLinear(8,5).to(dtype)
+    ordinary=torch.nn.Linear(8,5).to(dtype)
+    ordinary.load_state_dict(projection.state_dict(),strict=True)
+    x=torch.randn(4,8,dtype=dtype)
+    assert torch.equal(projection(x),ordinary(x))
+    projection(x).sum().backward()
+    ordinary(x).sum().backward()
+    assert torch.equal(projection.weight.grad,ordinary.weight.grad)
+    assert torch.equal(projection.bias.grad,ordinary.bias.grad)
+
+
+def test_bf16_projections_residuals_and_attention_state():
+    torch.manual_seed(647)
+    projection=StateLinear(8,8)
+    x=torch.randn(2,4,8)
+    with torch.autocast("cpu",dtype=torch.bfloat16):
+        product=torch.nn.functional.linear(x,projection.weight,None)
+        projected=projection(x)
+        assert product.dtype==torch.bfloat16 and projected.dtype==torch.float32
+        assert torch.equal(projected,product.float()+projection.bias)
+        q=projected[:,None]
+        mask=torch.tensor([[[[True,False,True,True]]],[[[False,False,False,False]]]])
+        dense=_attention(q,q,q,lambda a,b:mask[...,a:b],4)
+        chunk=_attention(q,q,q,lambda a,b:mask[...,a:b],2)
+        assert dense.dtype==chunk.dtype==torch.float32
+        assert dense[1].count_nonzero()==chunk[1].count_nonzero()==0
+        torch.testing.assert_close(dense[:1],chunk[:1],atol=.007,rtol=.005)
+        (dense.sum()+chunk.sum()).backward()
+    assert torch.isfinite(projection.weight.grad).all()
 
 
 @pytest.mark.parametrize("common",[False,True])

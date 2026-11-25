@@ -7,7 +7,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
-from .attention import MultiHeadAttention, ShiftedChannelAttention, masked_rows
+from .attention import MultiHeadAttention, ShiftedChannelAttention, StateLinear, masked_rows
 from .config import ModelConfig
 
 
@@ -15,9 +15,9 @@ class CorrectedProjection(nn.Module):
     """An affine map plus an initially zero learned nonlinear correction."""
     def __init__(self, in_features, out_features, linear_only=False):
         super().__init__()
-        self.skip = nn.Linear(in_features, out_features)
-        self.hidden = None if linear_only else nn.Linear(in_features, out_features)
-        self.correction = None if linear_only else nn.Linear(out_features, out_features)
+        self.skip = StateLinear(in_features, out_features)
+        self.hidden = None if linear_only else StateLinear(in_features, out_features)
+        self.correction = None if linear_only else StateLinear(out_features, out_features)
 
     def forward(self, x):
         base = self.skip(x)
@@ -27,8 +27,8 @@ class CorrectedProjection(nn.Module):
 
 
 def feed_forward(dim, bias=True):
-    return nn.Sequential(nn.Linear(dim, dim * 4, bias=bias), nn.GELU(),
-                         nn.Linear(dim * 4, dim, bias=bias))
+    return nn.Sequential(StateLinear(dim, dim * 4, bias=bias), nn.GELU(),
+                         StateLinear(dim * 4, dim, bias=bias))
 
 
 def patch_positions(time, row_valid, patch_width, dim):
@@ -137,16 +137,16 @@ class ShiftedAttentionModel(nn.Module):
         self.root_compress = CorrectedProjection(cfg.root_seeds*d, d)
         self.root_norm = nn.LayerNorm(d)
         self.root_self = MultiHeadAttention(d, cfg.heads)
-        self.root_score = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 1))
-        self.unpatch = nn.Linear(d, d if cfg.repeat_patch_points else w*d)
+        self.root_score = nn.Sequential(nn.LayerNorm(d), StateLinear(d, 1))
+        self.unpatch = StateLinear(d, d if cfg.repeat_patch_points else w*d)
         self.point_pool = SeedPool(d, cfg.heads, cfg.point_seeds, cfg.source_chunk_size)
         self.point_compress = CorrectedProjection(cfg.point_seeds*d, d)
-        self.point_score = nn.Sequential(nn.LayerNorm(d), nn.Linear(d, 1))
+        self.point_score = nn.Sequential(nn.LayerNorm(d), StateLinear(d, 1))
         if cfg.aux_reconstruction:
             self.mask_embedding = nn.Parameter(torch.empty(d if self.flat else s))
             nn.init.normal_(self.mask_embedding,std=.02)
-            self.reconstructor = nn.Sequential(nn.Linear(d,d), nn.GELU(), nn.Linear(d,d),
-                                              nn.GELU(), nn.Linear(d,1))
+            self.reconstructor = nn.Sequential(StateLinear(d,d), nn.GELU(), StateLinear(d,d),
+                                              nn.GELU(), StateLinear(d,1))
 
         for m in self.modules():
             if isinstance(m, nn.Linear):

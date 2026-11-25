@@ -111,6 +111,28 @@ def test_private_coverage_matches_actual_batches(corpus, single, tmp_path):
         audit(corpus,17,8,tmp_path)
 
 
+def test_coverage_after_unsupervised_global_batch(corpus,tmp_path,monkeypatch):
+    from shifted_attention import train
+    from shifted_attention.consumption import audit
+
+    original = train.masks
+    calls = 0
+    def masks(batch):
+        nonlocal calls
+        calls += 1
+        result = original(batch)
+        return tuple(torch.zeros_like(v) for v in result) if calls <= 4 else result
+    monkeypatch.setattr(train,"masks",masks)
+    monkeypatch.setattr(sys,"argv",["shifted-train",*command(corpus,tmp_path)[3:]])
+    train.main()
+    actual = audit(corpus,17,8,tmp_path)
+    forecast = audit(corpus,17,8)
+    assert actual["visits"] == 12 and forecast["visits"] == 8
+    assert actual["scheduled_prefix_sha256"] == forecast["id_sequence_sha256"]
+    assert actual["id_sequence_sha256"] != actual["scheduled_prefix_sha256"]
+    assert sum(c["windows"] for c in actual["cells"]) == 12
+
+
 def test_spawn_workers_read_real_tar_train_and_evaluation(corpus,tmp_path,monkeypatch):
     from shifted_attention import train,validation
     from torch.utils.data import DataLoader

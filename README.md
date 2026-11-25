@@ -42,7 +42,11 @@ Validation partitions whole ancestors within each width and mechanism family. Ev
 
 ## Audit training coverage
 
+Under BF16 autocast, linear products use BF16 operands and native autograd. Biases, position additions, residual streams, nonlinear updates and channel gates are carried in FP32. The parameter structure and full-precision evaluation path are shared across training and inference.
+
 To audit the frozen sampler before training, run `python -m shifted_attention.consumption --dataset /data/sster --seed 17 --budget 1440000 --output sampler-17.json`. After training, add `--checkpoint-dir /path/to/seed-17` to verify the actual ID order and batch counts. This offline audit joins the selection to private generator receipts and reports direct and witnessed root exposure per channel, each template's scheduled and witnessed counts, repeat occurrences and six visibility flags with per-cell denominators. The optimizer and model read the public inputs and supervision.
+
+The report records the planned prefix and the total visits separately. A global batch with both losses masked advances the sampler and requires another draw to reach the optimizer-update budget. Its visits count toward the realized training exposure. Legacy receipts identify window-level target witnesses and list the denominator for each available visibility flag.
 
 ## Evaluate real measurements
 

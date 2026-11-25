@@ -14,6 +14,21 @@ def accumulation_dtype(x):
     return torch.float64 if x.dtype == torch.float64 else torch.float32
 
 
+def bf16_autocast(x):
+    device = x.device.type
+    return (x.dtype in (torch.float32, torch.bfloat16) and torch.is_autocast_enabled(device)
+            and torch.get_autocast_dtype(device) == torch.bfloat16)
+
+
+class StateLinear(nn.Linear):
+    """Keep the BF16 matrix product, then add bias and carry residual states in FP32."""
+    def forward(self, x):
+        if bf16_autocast(x):
+            y = F.linear(x, self.weight, None).float()
+            return y if self.bias is None else y + self.bias.float()
+        return super().forward(x)
+
+
 def _attention(q, k, v, mask_slice: Callable, source_chunk: int, bias_slice=None):
     """Exact attention with a bounded key tile and an explicit empty-row convention.
 
@@ -21,6 +36,9 @@ def _attention(q, k, v, mask_slice: Callable, source_chunk: int, bias_slice=None
     over heads and queries. Detaching the shift used in log-sum-exp is exact, as
     softmax is invariant to any constant shift within the row.
     """
+    promote = bf16_autocast(q)
+    if promote:
+        q, k, v = q.bfloat16(), k.bfloat16(), v.bfloat16()
     keys = k.shape[-2]
     if keys <= source_chunk:
         valid = mask_slice(0, keys)
@@ -31,7 +49,8 @@ def _attention(q, k, v, mask_slice: Callable, source_chunk: int, bias_slice=None
         else:
             mask = bias_slice(0, keys).masked_fill(~safe, -torch.inf).to(q.dtype)
         result = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
-        return torch.where(present, result, 0.0)
+        result = torch.where(present, result, 0.0)
+        return result.float() if promote else result
 
     dtype = accumulation_dtype(q)
     running_max = torch.full(q.shape[:-1] + (1,), -torch.inf, device=q.device, dtype=dtype)
@@ -54,17 +73,18 @@ def _attention(q, k, v, mask_slice: Callable, source_chunk: int, bias_slice=None
         denominator = denominator * old_scale + weight.sum(dim=-1, keepdim=True)
         running_max = new_max
     safe_denominator = torch.where(denominator > 0, denominator, 1.0)
-    return (numerator / safe_denominator).to(q.dtype)
+    result = (numerator / safe_denominator).to(q.dtype)
+    return result.float() if promote else result
 
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, dim, heads):
         super().__init__()
         self.heads = heads
-        self.q_proj = nn.Linear(dim, dim)
-        self.k_proj = nn.Linear(dim, dim)
-        self.v_proj = nn.Linear(dim, dim)
-        self.out_proj = nn.Linear(dim, dim)
+        self.q_proj = StateLinear(dim, dim)
+        self.k_proj = StateLinear(dim, dim)
+        self.v_proj = StateLinear(dim, dim)
+        self.out_proj = StateLinear(dim, dim)
 
     def _heads(self, x):
         return x.unflatten(-1, (self.heads, -1)).transpose(1, 2)
@@ -96,11 +116,11 @@ class ShiftedChannelAttention(nn.Module):
         super().__init__()
         self.config = config
         s, h = config.stream_width, config.heads
-        self.q_proj = nn.Linear(s, s, bias=False)
-        self.k_proj = nn.Linear(s, s, bias=False)
-        self.v_proj = nn.Linear(s, s, bias=False)
-        self.out_proj = nn.Linear(s, s, bias=False)
-        self.gate_proj = None if config.variant == "no_gate" else nn.Linear(s, s, bias=False)
+        self.q_proj = StateLinear(s, s, bias=False)
+        self.k_proj = StateLinear(s, s, bias=False)
+        self.v_proj = StateLinear(s, s, bias=False)
+        self.out_proj = StateLinear(s, s, bias=False)
+        self.gate_proj = None if config.variant == "no_gate" else StateLinear(s, s, bias=False)
         mix = torch.eye(h)[:, 1:].clone()
         if config.variant in {"hard_shifts", "synchronous"}:
             self.register_buffer("R_nonzero", mix if config.variant == "hard_shifts" else mix.zero_())

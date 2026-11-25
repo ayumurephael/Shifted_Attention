@@ -116,23 +116,30 @@ def audit(dataset, seed, budget, checkpoint_dir=None):
     manifest_hash = corpus.meta["manifest_sha256"]
     expected = prior_indices(corpus.table,seed,budget,budget)
     expected_hash = id_sequence_digest(corpus.table,expected)
-    result = dict(seed=seed,budget=budget,release_manifest_sha256=manifest_hash,
-                  id_sequence_sha256=expected_hash,source="sampler_only")
+    result = dict(seed=seed,budget=budget,visits=budget,release_manifest_sha256=manifest_hash,
+                  scheduled_prefix_sha256=expected_hash,id_sequence_sha256=expected_hash,source="sampler_only")
     if checkpoint_dir is not None:
         checkpoint_dir = Path(checkpoint_dir)
         complete = read_json(checkpoint_dir/"complete.json")
         snapshot = torch.load(checkpoint_dir/"latest.pt",map_location="cpu",weights_only=False)
         contract = snapshot["contract"]
+        cursor = snapshot["cursor"]
         if (contract["seed"] != seed or contract["dataset"][0] != manifest_hash
                 or contract["steps"]*contract["global_batch"] != budget
                 or snapshot["step"] != contract["steps"] or complete["step"] != snapshot["step"]
-                or complete["consumed"] != budget or snapshot["cursor"] != budget):
+                or complete["consumed"] != cursor or snapshot["empty"] < 0
+                or cursor != budget + snapshot["empty"]*contract["global_batch"]):
             raise ValueError("completed checkpoint belongs to a different schedule or release")
+        if cursor > budget:
+            # Globally empty attempts advance the sampler without advancing the optimizer.
+            expected = prior_indices(corpus.table,seed,budget,cursor)
+            expected_hash = id_sequence_digest(corpus.table,expected)
         actual = snapshot["consumed_indices"]
         if (not np.array_equal(actual,expected) or complete["consumed_id_sha256"] != expected_hash
                 or complete["reconstructed_prefix"] != snapshot["reconstructed_prefix"]):
             raise ValueError("recorded consumption differs from sampler or completion marker")
-        result.update(source="completed_training",reconstructed_prefix=int(snapshot["reconstructed_prefix"]))
+        result.update(source="completed_training",visits=int(cursor),id_sequence_sha256=expected_hash,
+                      reconstructed_prefix=int(snapshot["reconstructed_prefix"]))
         del snapshot
     result.update(counts_by_cell(corpus,expected,release))
     if checkpoint_dir is not None:
