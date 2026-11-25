@@ -1,0 +1,25 @@
+{
+  "repo": "TheDatumOrg/TSB-AD",
+  "commit": "303dffbfc11612995b17b06633f8c9d0ea0e38e5",
+  "git_tree": "136d533150b1cd4609fcb6c3aa0dd71c5f07ccba",
+  "files": {
+    "Datasets/File_List/TSB-AD-M-Eva.csv": "483a056627b0a8aeb6a92b7c0a64bc90091297ee",
+    "Datasets/File_List/TSB-AD-M-Tuning.csv": "e9cf1a380906ebd0288b4fee3205df1953cda199",
+    "Datasets/File_List/TSB-AD-U-Eva.csv": "527b56cd9075ea0420dd3c518d3911f5f8452b35",
+    "Datasets/File_List/TSB-AD-U-Tuning.csv": "196f308aab55ce373aab65c4724ea36cd1588dd5",
+    "LICENSE": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+    "TSB_AD/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "TSB_AD/evaluation/__init__.py": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "TSB_AD/evaluation/affiliation/__init__.py": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "TSB_AD/evaluation/affiliation/_affiliation_zone.py": "a291e59da5043f156c818806017cfe4d17837173",
+    "TSB_AD/evaluation/affiliation/_integral_interval.py": "b02bab8ad71f50641f300e46c464199947e9c5be",
+    "TSB_AD/evaluation/affiliation/_single_ground_truth_event.py": "3822b875645ea30ac17b73b746de2be3e7b63f58",
+    "TSB_AD/evaluation/affiliation/generics.py": "dfe41d8149950472a82825a86ea8579fd4317994",
+    "TSB_AD/evaluation/affiliation/metrics.py": "a305dfa58dd54db49a4f3bdd908ed6fb380068ac",
+    "TSB_AD/evaluation/basic_metrics.py": "c4b2ee9eb272875702ec3a041fde5c1cae0681ab",
+    "TSB_AD/evaluation/metrics.py": "4677bb0ca84e9aeb31f1bf1a2722252b36f070d1",
+    "TSB_AD/evaluation/visualize.py": "bfcbec6effdfac9447d53632914345da7c01df42",
+    "TSB_AD/utils/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "TSB_AD/utils/slidingWindows.py": "25ac0da22e8e3d58c93557bfc4b9ffa4e3603862"
+  }
+}

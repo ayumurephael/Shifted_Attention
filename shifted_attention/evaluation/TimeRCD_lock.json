@@ -1,0 +1,19 @@
+{
+  "repo": "thu-sail-lab/Time-RCD",
+  "commit": "768bb4e2b019280bd47eb116ef976ca1b8360b0f",
+  "git_tree": "2775789cb506d449a1e2f28da0b3936005536251",
+  "files": {
+    "evaluation/__init__.py": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "evaluation/affiliation/__init__.py": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "evaluation/affiliation/_affiliation_zone.py": "a291e59da5043f156c818806017cfe4d17837173",
+    "evaluation/affiliation/_integral_interval.py": "b02bab8ad71f50641f300e46c464199947e9c5be",
+    "evaluation/affiliation/_single_ground_truth_event.py": "3822b875645ea30ac17b73b746de2be3e7b63f58",
+    "evaluation/affiliation/generics.py": "dfe41d8149950472a82825a86ea8579fd4317994",
+    "evaluation/affiliation/metrics.py": "a305dfa58dd54db49a4f3bdd908ed6fb380068ac",
+    "evaluation/basic_metrics.py": "663beec3077882a9ba4974c0bd498eb6d09728e7",
+    "evaluation/metrics.py": "4e0adc9d7302b08164e2b43144444793405952e7",
+    "evaluation/visualize.py": "bfcbec6effdfac9447d53632914345da7c01df42",
+    "utils/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "utils/slidingWindows.py": "984f893a3c69cf59598632a2fd504071ee20412f"
+  }
+}

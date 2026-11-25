@@ -1,0 +1,12 @@
+{
+  "repo": "TheDatumOrg/TSB-AD",
+  "commit": "303dffbfc11612995b17b06633f8c9d0ea0e38e5",
+  "git_tree": "136d533150b1cd4609fcb6c3aa0dd71c5f07ccba",
+  "files": {
+    "TSB_AD/model_wrapper.py": "3a325dda4ac768346321249aad6778551943c962",
+    "TSB_AD/models/Time_RCD.py": "e2eb1aea6836d443d6b18e75df6ec3bcfd183ff4",
+    "TSB_AD/models/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "TSB_AD/models/base.py": "25d470f6b4e5f7aef9545571af388e9183b641f8",
+    "TSB_AD/utils/utility.py": "32d219b7fd09e12883e0c69fa5900068e58756f6"
+  }
+}

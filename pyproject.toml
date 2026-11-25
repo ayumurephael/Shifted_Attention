@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shifted-attention"
+version = "0.1.0"
+description = "Dual-stream Transformer with learnable shifted multi-head attention for time-series localization and detection"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.5", "numpy>=1.25", "scipy>=1.11", "scikit-learn>=1.4", "pandas>=2.0", "requests>=2.30"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+industrial = ["openpyxl>=3.1", "xlrd>=2.0"]
+benchmarks = ["statsmodels>=0.14", "matplotlib>=3.7", "tqdm>=4.66"]
+author = ["einops>=0.8", "jaxtyping>=0.3"]
+
+[project.scripts]
+shifted-train = "shifted_attention.train:main"
+shifted-evaluate = "shifted_attention.evaluation.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["shifted_attention*"]
+
+[tool.setuptools.package-data]
+"shifted_attention.evaluation" = ["*.json","*.csv"]

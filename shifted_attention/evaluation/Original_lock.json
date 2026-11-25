@@ -1,0 +1,18 @@
+{
+  "repo": "thu-sail-lab/Time-RCD",
+  "commit": "372bb980426b2f67007311c6f3165ab789c79bef",
+  "git_tree": "751deb5681a551fafb158d49c4e719c1a6fc60e2",
+  "files": {
+    "LICENSE": "5853cb15c0f5eb5adff96eab0de9ac85051f016e",
+    "pyproject.toml": "2ecd939bbb35a90db293819f12d8115539e1390a",
+    "time_rcd/__init__.py": "5a2f7de5961d6c7cce9929ea07f51c8bc5b0c2d0",
+    "time_rcd/_core/TimeRCD_pretrain_multi.py": "acd9f134afed09ea9963658181487b4b638910b7",
+    "time_rcd/_core/__init__.py": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "time_rcd/_core/dataset.py": "9293b8047cf7ef989f7e233fccccdb2d80e33eb8",
+    "time_rcd/_core/full_reconstruction.py": "2c8d8766e7fef0d0720bb89661999b94b1bbe72c",
+    "time_rcd/_core/time_rcd_config.py": "e2c8a4310c2c118040f847e910b44ff12158eb32",
+    "time_rcd/_core/ts_encoder_bi_bias.py": "09fb016506f725cc3b1a95c6d991cd06e4fe2ce7",
+    "time_rcd/_inference.py": "31239abb4264e523f68efa2405e7c3ae23606c9d",
+    "time_rcd/detector.py": "5ef510ce5b9e7586d887d42d28fee00718e2dff9"
+  }
+}
