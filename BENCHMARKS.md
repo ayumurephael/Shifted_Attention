@@ -9,6 +9,7 @@ python -m shifted_attention.evaluation timercd --checkpoint best.pt --data bench
 python -m shifted_attention.evaluation tsb --checkpoint best.pt --data benchmarks --output results/tsb
 python -m shifted_attention.evaluation rca --checkpoint best.pt --data benchmarks --ledger benchmarks/rca/chamber.json --output results/chamber
 python -m shifted_attention.evaluation rca --checkpoint best.pt --data benchmarks --ledger benchmarks/rca/msds.json --output results/msds --threshold "$SOURCE_THRESHOLD"
+python -m shifted_attention.evaluation rca --checkpoint best.pt --data benchmarks --ledger benchmarks/rca/msds-direct-service-logs.json --output results/msds-services --threshold "$SOURCE_THRESHOLD"
 ~~~
 
 ## TimeRCD 与 TSB-AD
@@ -59,11 +60,23 @@ AERCA 作者仓库固定版本的 39 项 Git 树中没有公开模型权重，Gi
 
 对每事件先用 512/128 窗、末尾补窗推理，按合格通道取有效窗口的最大根因概率。缺证据候选得零并保留。相同分数以 SHA256(release|run|channel_id) 的字典序破同分，AP 对相同分数整体积分。主表为 Hit@1、MRR、Recall@1/3 和 AP。AC@k 的分母是 min(k, |G|)，集合 Recall@k 的分母是 |G|。多根因按已知根因个数分层，退化、未知、候选外事件记录分母。表中代理真值按其独立单位报告。给定事件定位与先检测再定位分别输出，后者最大连续阈值区间与真值配对，IoU 至少 0.1，先最大化匹配数，再最大化总 IoU。漏检定位计零。记录 precision/recall、每千行和可用时钟的每小时误报数。阈值由训练脚本用源域校准数据确定。
 
-**原始数据可用性。** prepare 默认取得 MSDS v1.1 的 concurrent 压缩包以及 AERCA 十列 labels.csv，复现 AERCA 指定的五主机顺序及其按索引标签删除原始行的具体行为，得到 325400 个合并时间戳。丢弃前 10% 后对半切分，测试区有 146430 行测量。标签来自 TranAD，以其原始 preprocess.py 对测量取 [::5]、对标签取 [::1]，恰好对齐 29286 个有序测试时间戳。标签文件与 AERCA 发布的文件共享同一个 Git blob be5b52a6d4c4f169267ff30b3bb83f8b50719cc9。AERCA 加载器再次对标签稀疏抽样会丢失对应关系，本面板按标签发布方的原始采样约定取值。[原始预处理](https://github.com/imperial-qore/TranAD/blob/7ffb98d0c18189cc3d9ab732b4cb0278200a0af0/preprocess.py)聚合连续阳性区间，使用段内各列 OR 作为指标标注代理。源域训练模型始终冻结。MSDS 主机/服务直接注入定位另需注入记录和事前冻结的实体到指标成员表。两个面板独立计分。[MSDS v1.1](https://zenodo.org/records/3549604)
+**原始数据可用性。** prepare 默认取得 MSDS v1.1 的 concurrent 压缩包以及 AERCA 十列 labels.csv，复现 AERCA 指定的五主机顺序及其按索引标签删除原始行的具体行为，得到 325400 个合并时间戳。丢弃前 10% 后对半切分，测试区有 146430 行测量。标签来自 TranAD，以其原始 preprocess.py 对测量取 [::5]、对标签取 [::1]，恰好对齐 29286 个有序测试时间戳。标签文件与 AERCA 发布的文件共享同一个 Git blob be5b52a6d4c4f169267ff30b3bb83f8b50719cc9。AERCA 加载器再次对标签稀疏抽样会丢失对应关系，本面板按标签发布方的原始采样约定取值。[原始预处理](https://github.com/imperial-qore/TranAD/blob/7ffb98d0c18189cc3d9ab732b4cb0278200a0af0/preprocess.py)聚合连续阳性区间，使用段内各列 OR 作为指标标注代理。源域训练模型始终冻结。另外从 Rally 实际执行记录和独立服务日志构造直接服务面板，参见下文“MSDS 原生服务注入”。两个面板独立计分。[MSDS v1.1](https://zenodo.org/records/3549604)
 
 Causal Chambers 的两个发行物用发布方 MD5 核验。光隧道保留九项实测量与 uniform_reference，针对 angle_1、angle_2、current 各两个实验，使用完整的 512 行非重叠窗；不足一整窗的实验保留一窗。先聚合每实验内的窗，再使六实验等权。风洞仅用十一项实测量，不向模型提供执行器命令或 intervention 列。另报最大传感器概率超过 0.5 的频率。[风洞发布说明](https://github.com/juangamella/causal-chamber/tree/main/datasets/wt_intake_impulse_v1)
 
+复核 Causal Chambers 原始物理面板时，光隧道正常参考有 10000 行；六个干预文件各 1000 行，对应三个电压参考参数 v_c、v_angle_1、v_angle_2。参考值均为 5；各文件仅其对应参考参数移至约 2.56 或 1.10。目标字段是仪表的参考电压配置，测得的 current、angle_1、angle_2 用作仪表归属标签。预注册每次实验使用一段完整 512 行窗，尾部 488 行独立留存于原始输入。五个风洞实验中施加脉冲的是进风机负载命令 load_in，发布变量字典将 intervention 定义为指令后首次测量标志。11 个实测量中没有该命令，因此输出候选外断言统计。[光隧道变量说明](https://github.com/juangamella/causal-chamber/blob/c2b307036446b8d3ca173e9f41ff465b7111819a/datasets/lt_interventions_standard_v1/variables.csv) · [风洞协议](https://github.com/juangamella/causal-chamber/tree/c2b307036446b8d3ca173e9f41ff465b7111819a/datasets/wt_intake_impulse_v1)
+
 ## 导入 SWaT、WADI 与 MSDS 原生事件
+
+### MSDS 原生服务注入
+
+`prepare --assets msds` 生成十指标代理和直接服务两个面板。`prepare --assets msds-services` 单独生成后者。构建器验证 Zenodo concurrent 压缩包的发布 MD5，输出可核验的 31 项执行记录、29 项聚合事件、时钟锚点和输入来源摘要到 benchmarks/msds-direct-services；通用 industrial importer 输出 benchmarks/rca/msds-direct-service-logs.json 与相应 NPZ。此数据来自同一次并发实验，按一个独立运行登记。[原始数据](https://zenodo.org/records/3549604) · [作者数据说明](https://github.com/snedelkoski/multi-source-observability-dataset) · [作者论文](https://jorge-cardoso.github.io/rd/Papers/CP-2020-093-Multi-source_Distributed_System_Data.pdf)
+
+**直接目标。** 三份实际 Rally 报告的 hooks/results 给出每次成功执行的 started_at、finished_at、返回码和容器回显。按容器归属得到 Nova 7 次、Glance 12 次、Neutron 12 次。取实际执行区间的时间并集，保留完全落在区间内的一秒计数箱。两对 Nova/Neutron 操作在时间上重叠，聚合后有 27 个单服务和 2 个双服务事件。事件边界表示直接干预动作的执行时段，恢复期症状可延续至时段之后。31 条实际回显均缺少被操作的物理主机 ID，真实目标单位在本面板固定为 OpenStack 服务。十指标面板另行保留每主机 CPU/内存标注。
+
+**独立观测。** 只读取独立聚合日志的 @timestamp 与 Logger 两列。按发布记录中的全部八个具名 OpenStack 服务，将每秒日志条数作为输入。169230 行中 168 行缺少合格 Logger。输入为 21384×8，4079 秒内八项计数全零；零表示日志集中该秒没有收到对应服务消息。计数程序在读取任何干预记录之前执行。独立审计扫描了原日志文本中与实验驱动回显有关的签名，命中数为 0。报告字段、日志文本、告警等级、主机名和请求 ID 均不进入模型。该面板的观测是从实际服务日志派生的计数，属于直接服务定位的外部评测。
+
+**时钟。** 三份报告保存 Unix epoch 执行时刻，全部 169230 行日志的 @timestamp 带 +01:00。按各自原始字段转换至 UTC，得到 2019-11-25 14:00:17 至 19:56:40 的日志计数轴，覆盖全部干预。通过 Rally 迭代的 trace ID 连到同一资源、方法、主机的独立 API 完成日志，12 个跨时间抽取的锚点的最大绝对差为 0.003141 秒。发行包提示文件的手写日期顺序自相矛盾，项目说明中的 CEST 文字与 CSV 的显式偏移亦有出入，重建采用可交叉验证的记录级时钟。
 
 SWaT 选择 2015 年 12 月 Normal_v1、Attack_v0、同版 List_of_attacks_Final。WADI 选择 WADI.A2 的 WADI_14days_new.csv、WADI_attackdataLABLE.csv 以及同版直接注入目标说明。向 iTrust 获取授权数据后，冻结 spec JSON 和 events JSON。标注不全时保留原文引用，以 unknown 或 outside 标记。SWaT/WADI 的列选择需显式区分测量、执行器、目标外变量。为严格传感器面板只输入实测变量，确保每一名 eligible 目标均被包含。按原始事件表核对直接目标；同单位重叠事件若可穷尽归因先审定目标并集再登记为一个事件，其余重叠时间事件标注 unknown。程序验证列和时间边界、文件哈希、来源证据，合并重复时标的连续测量取中位数并保存源行到分组行映射。无法确认重复行是否同采集周期的记录应单独登记。WADI 标签列需显式映射 -1 至攻击、1 至正常，导入时输出点标注与事件表分歧行数。[SWaT 发行信息](https://www.sutd.edu.sg/itrust/itrust-labs/datasets/dataset-characteristics/swat/) · [WADI 发行信息](https://www.sutd.edu.sg/itrust/itrust-labs/datasets/dataset-characteristics/wadi/)
 

@@ -147,6 +147,11 @@ def prepare(base, assets):
         elif asset == "msds":
             from .adapters import msds
             msds(base)
+            from .msds_services import prepare_service
+            prepare_service(base)
+        elif asset == "msds-services":
+            from .msds_services import prepare_service
+            prepare_service(base)
         elif asset == "author":
             for name in ("Original","TSB","TSBModel"):
                 metric_source(base,name,fetch=True)

@@ -1,5 +1,7 @@
 import dataclasses
+import io
 import json
+import zipfile
 
 import numpy as np
 import pytest
@@ -10,6 +12,7 @@ from shifted_attention.model import ShiftedAttentionModel
 from shifted_attention.evaluation.adapters import industrial_import,recording,segments
 from shifted_attention.evaluation.assets import git_blob
 from shifted_attention.evaluation.baselines import Severity
+from shifted_attention.evaluation.msds_services import LOG, merged_events, observed
 from shifted_attention.evaluation.inference import Predictor,normalizer,starts
 from shifted_attention.evaluation.rca import aggregate,match_events,ranking,score_record
 from shifted_attention.evaluation.tsad import PAPER,file_info,summarize
@@ -47,6 +50,24 @@ def test_severity_uses_identical_reference_and_retains_unobserved_candidates():
     scores,hits=model.anomaly(x,np.arange(3),ref=ref,width=2,stride=1)
     np.testing.assert_allclose(scores,[0,.75,0])
     assert hits.tolist()==[1,2,0]
+
+
+def test_independent_service_logs_and_overlapping_hook_interiors(tmp_path):
+    stream=io.BytesIO()
+    with zipfile.ZipFile(stream,"w") as archive:
+        archive.writestr(LOG,"@timestamp,Logger\n2019-11-25T16:00:00+01:00,openstack.a\n"
+                        "2019-11-25T16:00:00+01:00,openstack.b\n2019-11-25T16:00:02+01:00,\n")
+    with zipfile.ZipFile(stream) as archive:
+        report=observed(archive,tmp_path)
+    assert report["channels"]==["openstack.a","openstack.b"] and report["one_second_bins"]==3
+    assert report["start_utc"]=="2019-11-25T15:00:00+00:00" and report["unassigned_log_rows"]==1
+    hooks=[dict(id="b",start_epoch=3.2,stop_epoch=6.8,services=["b"],evidence_ref="y"),
+           dict(id="a",start_epoch=1.1,stop_epoch=4.3,services=["a"],evidence_ref="x")]
+    incidents=merged_events(hooks,0,10)
+    assert len(incidents)==1 and incidents[0]["targets"]==["a","b"]
+    assert incidents[0]["end_inclusive"] is False
+    assert incidents[0]["start_time"].endswith("00:00:02+00:00")
+    assert incidents[0]["end_time"].endswith("00:00:06+00:00")
 
 
 def test_ap_ties_multiroot_and_cardinality_first():

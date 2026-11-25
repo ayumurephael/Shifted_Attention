@@ -7,7 +7,8 @@ def main(argv=None):
     cmds = parser.add_subparsers(dest="action", required=True)
     prep = cmds.add_parser("prepare", help="Download and verify public benchmark assets")
     prep.add_argument("--data", required=True, type=Path)
-    prep.add_argument("--assets", nargs="+", choices=["tsad","metrics","chamber","msds","author"], default=["tsad","chamber","msds"])
+    prep.add_argument("--assets", nargs="+", choices=["tsad","metrics","chamber","msds","msds-services","author"],
+                      default=["tsad","chamber","msds"])
     for name in ("timercd","tsb","rca"):
         cmd = cmds.add_parser(name)
         cmd.add_argument("--checkpoint", type=Path, help="Required for the shifted model")
