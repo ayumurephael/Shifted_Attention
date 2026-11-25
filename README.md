@@ -40,6 +40,10 @@ Each seed schedules 1,440,000 windows over 60,000 optimizer updates. The sampler
 
 Validation partitions whole ancestors within each width and mechanism family. Every 2,000 steps the selection score averages nondegenerate event-wise root AP and pooled point AP. Ties retain the earlier checkpoint. The independent calibration ancestors set a 95th-percentile healthy-window alert threshold. Each seed produces step snapshots, best.pt, latest.pt, calibration.json, synthetic-test.json, consumption.json and complete.json. Fixture mode explicitly selects a smaller verification configuration.
 
+## Audit training coverage
+
+To audit the frozen sampler before training, run `python -m shifted_attention.consumption --dataset /data/sster --seed 17 --budget 1440000 --output sampler-17.json`. After training, add `--checkpoint-dir /path/to/seed-17` to verify the actual ID order and batch counts. This offline audit joins the selection to private generator receipts and reports direct and witnessed root exposure per channel, each template's scheduled and witnessed counts, repeat occurrences and six visibility flags with per-cell denominators. The optimizer and model read the public inputs and supervision.
+
 ## Evaluate real measurements
 
 The public-data preparation command downloads the released files and verifies the metric source files against their Git object hashes. Pass a local benchmark root with room for the extracted archives. The external tests consume the selected checkpoint. For root localization the optional threshold comes from the same seed’s calibration.json. [Dataset inventory, ranking definitions and release-specific import examples](BENCHMARKS.md)
@@ -58,6 +62,8 @@ The TimeRCD command enforces the paper’s counts across 11 univariate and five 
 Training accepts the synchronous, fixed-shift, gate-bypass, feedback and flat joint-attention variants through --variant. Additional switches expose a common lag-support mask, linear tokenizer, repeated patch score features, seed counts, patch width and shift range. Use --aux-reconstruction for the independent 15% masked-patch comparison. It adds an observed-point MSE from a second encoder pass, records the extra forward time, and removes the reconstruction head for deployed inference. Keep the same seed, corpus release and consumption budget for paired runs. [Paired reporting](COMPARISONS.md)
 
 ## Tests
+
+`python -m shifted_attention.precision --device cuda --draws 8 --output precision.json` compares identical weights and inputs in FP64, FP32 and BF16. Pass `--checkpoint /path/to/best.pt` to use trained weights. It reports absolute error distributions for the shifted operator, raw logits and probabilities, plus valid-mask mismatches. The mechanism probe records physical donor-minus-target time together with patch offsets, admissible ordered sensor-pair counts and the masks used at each lag. [Mechanism probe commands](COMPARISONS.md)
 
 ~~~bash
 python -m pytest

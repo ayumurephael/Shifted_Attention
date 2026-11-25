@@ -3,6 +3,7 @@ import argparse
 from collections import Counter, defaultdict
 from contextlib import ExitStack
 import copy
+import gzip
 import hashlib
 import io
 import json
@@ -17,6 +18,7 @@ import torch
 from . import attention as ops
 from .data import INPUTS, build_index, Corpus, atomic_json
 from .evaluation.inference import Predictor
+from .physical_lags import accumulate_lags, head_lags, physical_lags
 from .validation import average_precision
 
 
@@ -387,6 +389,7 @@ def run(args):
     rng_stats = np.random.default_rng(args.seed+1)
     counts = Counter()
     storage = {}
+    lag_totals = {}
     readouts = {}
     seed_time = []
     pulse_rows = []
@@ -395,7 +398,8 @@ def run(args):
     cache = {}
     args.output.mkdir(parents=True,exist_ok=True)
     try:
-        with (args.output/"windows.jsonl").open("w",encoding="utf-8") as out:
+        with (args.output/"windows.jsonl").open("w",encoding="utf-8") as out, gzip.open(
+            args.output/"physical-lags.jsonl.gz","wt",encoding="utf-8") as lag_out:
             for ix in sorted(map(int,indices)):
                 row = corpus.table[ix]
                 relevant = row["n"]>=2 and row["mode"]==1
@@ -413,9 +417,16 @@ def run(args):
                     root_weights=[]
                     with ExitStack() as hook_scope:
                         readout_hooks(hook_scope,models["primary"],readouts,root_weights)
-                        hook_scope.enter_context(InspectHeads(models["primary"],sample["channel_valid"].to(device)[None],
+                        inspector=hook_scope.enter_context(InspectHeads(models["primary"],sample["channel_valid"].to(device)[None],
                                       storage,args.reservoir,rng_stats))
                         predicted = score(models["primary"],sample,device)
+                    if hasattr(inspector,"valid"):
+                        cfg=models["primary"].config
+                        clock=sample["time"].numpy()[None]
+                        ledger=physical_lags(clock,np.ones_like(clock,dtype=bool),inspector.valid.cpu().numpy(),
+                                             cfg.patch_width,cfg.shifts,cfg.common_support)[0]
+                        lag_out.write(json.dumps(dict(id=uid,**ledger),allow_nan=False)+"\n")
+                        accumulate_lags(ledger,lag_totals)
                     mass=temporal_mass(root_weights[0][0],sample,models["primary"].config.patch_width)
                     if mass is not None:
                         seed_time.append(dict(id=uid,relative_stage_mass=mass))
@@ -468,6 +479,7 @@ def run(args):
                 by_reason[reason] = (None if ent is None else dict(query_count=sum(ent["support"].values()),
                     support_histogram=dict(ent["support"]),**{k:ent[k].result() for k in ("pre","post","gate")}))
             heads.append(dict(layer=li,head=h,shifts=list(mod.config.shifts),lambda_values=values.tolist(),
+                              physical_lags=head_lags(mod.config.shifts,values,lag_totals),
                               zero=int((values==0).sum()),negative=int((values<0).sum()),
                               tiny_nonzero=int(((np.abs(values)<=1e-6)&(values!=0)).sum()),by_reason=by_reason,
                               zero_epsilon_check=basis_sensitivity(mod,device) if h==0 else None))
@@ -504,6 +516,13 @@ def run(args):
         counts=counts,root_event_macro_ap=summary,paired_ancestor_bootstrap=paired,heads=heads,pulses=phase_summary,
         pma_cosine={k:{"sets":count,"mean":(total/count).tolist()} for k,(total,count) in readouts.items()},
         root_seed_temporal_mass=seed_time,
+        physical_lag_ledger="physical-lags.jsonl.gz",
+        physical_lag_unit="generator physical ticks in the public time array",
+        physical_lag_mask_encoding="one record per batch member; bool [channel,patch], C order, "
+            "numpy.packbits(bitorder='little') then hex; ignore bits beyond product(token_valid_shape)",
+        physical_lag_definition="donor patch center minus target patch center; positive means later. "
+            "Centers average retained real rows. Counts weight ordered distinct valid receiver/donor pairs "
+            "per shift with the head's nonzero coefficient, independent of learned channel attention mass.",
         symptom_stratum_contract=("In the frozen direct-state generator every nonroot has zero direct perturbation "
             "and historical Lipschitz row sum below one. With all injections inside the crop, the strict "
             "physical symptom peak cannot exceed the maximum peak at direct positions in exact arithmetic. "

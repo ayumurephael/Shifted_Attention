@@ -88,6 +88,29 @@ def test_resume_is_bit_exact(corpus,single,tmp_path):
         assert json.loads((single/key).read_text())==json.loads((tmp_path/key).read_text())
 
 
+def test_private_coverage_matches_actual_batches(corpus, single, tmp_path):
+    from shifted_attention.consumption import audit
+
+    expected = audit(corpus, 17, 8)
+    actual = audit(corpus, 17, 8, single)
+    assert expected["source"] == "sampler_only" and actual["source"] == "completed_training"
+    assert actual["reconstructed_prefix"] == 0
+    for key in ("id_sequence_sha256", "cells", "templates", "root_exposure"):
+        assert actual[key] == expected[key]
+    assert sum(c["windows"] for c in actual["cells"]) == 8
+    assert sum(sum(v["raw"]) for v in actual["root_exposure"].values()) == sum(c["direct"] for c in actual["cells"])
+    assert all(r["events"] >= r["windows"] >= r["windows_witnessed"] for r in actual["templates"])
+    with pytest.raises(ValueError, match="different schedule"):
+        audit(corpus, 29, 8, single)
+    for name in ("latest.pt", "complete.json", "consumption.json"):
+        shutil.copyfile(single/name,tmp_path/name)
+    summary = json.loads((tmp_path/"consumption.json").read_text())
+    summary[0]["known_positive"] += 1
+    (tmp_path/"consumption.json").write_text(json.dumps(summary))
+    with pytest.raises(ValueError, match="directly observed"):
+        audit(corpus,17,8,tmp_path)
+
+
 def test_spawn_workers_read_real_tar_train_and_evaluation(corpus,tmp_path,monkeypatch):
     from shifted_attention import train,validation
     from torch.utils.data import DataLoader
