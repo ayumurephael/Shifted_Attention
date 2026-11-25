@@ -1,10 +1,15 @@
 """Reference detectors operating on the same retained rows and event candidates."""
 import importlib
+import json
+import os
+from pathlib import Path
 import sys
+import tempfile
 
 import numpy as np
+import torch
 
-from .assets import AUTHOR_WEIGHTS, TIMRCD_HUB_REV, digest, metric_source
+from .assets import AUTHOR_WEIGHTS, TIMRCD_HUB_REV, digest, metric_source, save_json
 from .inference import normalizer, starts
 
 
@@ -37,6 +42,49 @@ class Severity:
         return np.divide(total,hits,where=hits>0,out=np.zeros_like(total)),hits
 
 
+def tsb_state_names(state):
+    """The TSB port spells the eight author multi-head bias tables 'embedding' instead of 'emd'."""
+    expected = {f"ts_encoder.transformer_encoder.layers.{i}.self_attn.binary_attention_bias.emd.weight"
+                for i in range(8)}
+    seen = {k.removeprefix("module.") for k in state if k.endswith("binary_attention_bias.emd.weight")}
+    if seen!=expected:
+        raise ValueError("Unexpected keys for the fixed published multivariate TimeRCD weights")
+    converted, aliases = {},{}
+    for key, value in state.items():
+        new = key.replace("binary_attention_bias.emd.weight","binary_attention_bias.embedding.weight")
+        if new in converted or (new!=key and new in state):
+            raise ValueError("Non-bijective TSB state dictionary")
+        converted[new] = value
+        if new!=key:
+            aliases[key] = new
+    return converted,aliases
+
+
+def tsb_multi_checkpoint(path):
+    source = Path(path)
+    derived = source.with_name("tsb-multi-strict.pth")
+    manifest = derived.with_suffix(".json")
+    if derived.exists() and manifest.exists():
+        meta = json.loads(manifest.read_text(encoding="utf8"))
+        if meta.get("source_sha256")==AUTHOR_WEIGHTS["multi"] and digest(derived)==meta.get("derived_sha256"):
+            return str(derived)
+    original = torch.load(source,map_location="cpu",weights_only=True)
+    state = original.get("model_state_dict",original)
+    converted,aliases = tsb_state_names(state)
+    with tempfile.NamedTemporaryFile(dir=source.parent,delete=False) as f:
+        torch.save(converted,f)
+    tmp = Path(f.name)
+    disk = torch.load(tmp,map_location="cpu",weights_only=True)
+    if set(disk)!=set(converted) or any(not torch.equal(value,disk[aliases.get(key,key)]) for key,value in state.items()):
+        tmp.unlink()
+        raise ValueError("Tensor equality check failed for the TSB multivariate state")
+    checksum = digest(tmp)
+    os.replace(tmp,derived)
+    save_json(manifest,{"source_sha256":AUTHOR_WEIGHTS["multi"],"derived_sha256":checksum,
+                        "aliases":aliases,"identical_tensors_checked":len(state)})
+    return str(derived)
+
+
 class AuthorTimeRCD:
     def __init__(self,base,device,paper,width):
         self.device, self.paper, self.width = device,paper,width
@@ -54,6 +102,7 @@ class AuthorTimeRCD:
             source = metric_source(base,"TSBModel")
             sys.path.insert(0,str(source.resolve()))
             self.dispatch = importlib.import_module("TSB_AD.model_wrapper").run_Time_RCD
+            self.paths["multi"] = tsb_multi_checkpoint(self.paths["multi"])
         self.last_variant = None
         self.instance = None
         self.identity = {"predictor":"TimeRCD-authors","hf_revision":TIMRCD_HUB_REV,
@@ -61,6 +110,9 @@ class AuthorTimeRCD:
                          "inference_commit":"372bb980426b2f67007311c6f3165ab789c79bef" if paper else
                          "303dffbfc11612995b17b06633f8c9d0ea0e38e5",
                          "batch_size":64,"normalization":"authors' entire scored input"}
+        if not paper:
+            self.identity["tsb_multi_namespace"] = json.loads(
+                Path(self.paths["multi"]).with_suffix(".json").read_text(encoding="utf8"))
 
     def anomaly(self,series,time,first=0,ref=None,width=None,stride=None):
         x = series[first:]

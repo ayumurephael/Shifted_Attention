@@ -32,6 +32,8 @@ TimeRCD 表 1 与附录 D 表 8–9 给出 16 个来源。按作者提供的 TSB
 
 ### 可执行的真实数据对照
 
+TSB-AD 的多变量移植将八层二值注意力偏置参数命名为 binary_attention_bias.embedding.weight，而公开的多变量权重将其命名为 binary_attention_bias.emd.weight。准备 TSB 原版对照时只对这八个键建立一一对应关系，在本地保存派生 state_dict，再逐张量使用 torch.equal 核对与原件完全一致。TSB 的严格加载继续校验完整的键与形状。目录中的 tsb-multi-strict.json 及输出登记保留原件指纹、派生件指纹和八个映射。
+
 ~~~bash
 python -m pip install einops jaxtyping
 python -m shifted_attention.evaluation prepare --data benchmarks --assets author
