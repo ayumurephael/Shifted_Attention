@@ -22,7 +22,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import DataLoader
 
 from .config import ModelConfig
-from .data import Corpus, atomic_json, build_index, collate, consumption_order, validation_halves, MODES
+from .data import Corpus, atomic_json, build_index, collate, consumption_order, production_edition, validation_halves, MODES
 from .model import ShiftedAttentionModel
 from .resources import ResourceMeter,parameter_ledger
 
@@ -180,9 +180,15 @@ def prior_indices(table, seed, budget, cursor):
     return result
 
 
+def check_checkpoint_contract(saved, contract):
+    if saved["contract"]!=contract:
+        raise ValueError("checkpoint resume contract differs from saved data, schedule, world or architecture")
+
+
 def run(args):
     from .validation import validate
 
+    edition = None if args.fixture else production_edition(args.dataset)
     world=int(os.environ.get("WORLD_SIZE","1"))
     local=int(os.environ.get("LOCAL_RANK","0"))
     device=torch.device(args.device if args.device!="cuda" else f"cuda:{local}")
@@ -205,8 +211,6 @@ def run(args):
     train=Corpus(args.dataset/"train")
     val=Corpus(args.dataset/"validation")
     test=Corpus(args.dataset/"test")
-    if not args.fixture and (len(train),len(val),len(test))!=(6720000,336000,336000):
-        raise ValueError("unexpected corpus counts for the production profile")
     select,cal=validation_halves(val.table,tiny=args.fixture)
     config=ModelConfig(variant=args.variant,patch_chunk_size=args.patch_chunk,source_chunk_size=args.source_chunk,
                        aux_reconstruction=args.aux_reconstruction,
@@ -224,6 +228,8 @@ def run(args):
     contract=dict(dataset=[d.meta["manifest_sha256"] for d in (train,val,test)],seed=args.seed,
                   steps=args.steps,global_batch=args.global_batch,warmup=args.warmup,interval=args.interval,
                   world=world,model_config=asdict(config))
+    if edition:
+        contract["training_edition"]=edition
     latest=args.output/"latest.pt"
     best=args.output/"best.pt"
     cursor=step=empty=0
@@ -235,8 +241,7 @@ def run(args):
         if not args.resume:
             raise FileExistsError(f"{latest} exists; pass --resume")
         saved=torch.load(latest,map_location="cpu",weights_only=False)
-        if saved["contract"]!=contract:
-            raise ValueError("resume contract differs from saved data, schedule, world or architecture")
+        check_checkpoint_contract(saved,contract)
         model.load_state_dict(saved["model"])
         opt.load_state_dict(saved["optimizer"])
         step,cursor,empty,best_score=(saved[k] for k in ("step","cursor","empty","best_score"))
@@ -363,6 +368,7 @@ def run(args):
             model.train()
             meter.train()
     selected=torch.load(best,map_location="cpu",weights_only=False)
+    check_checkpoint_contract(selected,contract)
     model.load_state_dict(selected["model"])
     best_step=selected["step"]
     del selected

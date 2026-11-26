@@ -26,17 +26,19 @@ with torch.inference_mode():
 
 Use Python 3.10 or later and a CUDA-enabled PyTorch build for H100 training. The corpus must contain three complete splits from the paired Data-Generator repository. Each split contains a manifest and uncompressed tar shards with separately indexed input and target members. The loader indexes manifest offsets on disk, opens shard handles in each worker and only sends the public measurement fields to the network. Keep the split mounted read-write during first-time reader index construction. [Data-Generator](https://github.com/ayumurephael/Data-Generator)
 
+The first-round release `round1-1680k-v1` has 1,680,000 training windows, with 240,000 at each sensor width. It uses the original validation and test splits of 336,000 windows each and their calibration scale bank. The training audit and success marker identify this edition. The original 6,720,000-window training corpus also remains supported. The three manifest hashes identify the exact split contents for checkpoint resume. Use a separate output directory for each edition and seed.
+
 ~~~bash
 python -m pip install -e '.[test,benchmarks,industrial]'
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5
 for seed in 17 29 43; do
   torchrun --standalone --nproc_per_node=6 -m shifted_attention.train \
     --dataset /data/sster --output "/data/models/seed-${seed}" --seed "$seed" \
-    --global-batch 24 --microbatch 1 --workers 2 --resume
+    --global-batch 24 --microbatch 4 --workers 2 --resume
 done
 ~~~
 
-Each seed schedules 1,440,000 windows over 60,000 optimizer updates. The sampler uses exact largest-remainder apportionment by sensor width, root count, mode and designated template before shuffling. Six replicas use four effective windows each. Physical microbatch one accumulates four gradients. The denominators of both BCE losses count valid supervision over every microbatch on every replica. Optimization uses AdamW, a 3,000-step warmup, cosine decay, unit gradient clipping and BF16 CUDA matrix operations. The implementation preserves FP32 master weights. Step checkpoints record model and optimizer, RNG states, consumed windows, sampler position, run configuration and manifest hashes.
+Each seed schedules 1,440,000 windows over 60,000 optimizer updates. The sampler uses exact largest-remainder apportionment by sensor width, root count, mode and designated template before shuffling. Six replicas each process four windows per update. The denominators of both BCE losses count valid supervision over every microbatch on every replica. Optimization uses AdamW, a 3,000-step warmup, cosine decay, unit gradient clipping and BF16 CUDA matrix operations. The implementation preserves FP32 master weights. Step checkpoints record model and optimizer, RNG states, consumed windows, sampler position, run configuration and manifest hashes.
 
 Validation partitions whole ancestors within each width and mechanism family. Every 2,000 steps the selection score averages nondegenerate event-wise root AP and pooled point AP. Ties retain the earlier checkpoint. The independent calibration ancestors set a 95th-percentile healthy-window alert threshold. Each seed produces step snapshots, best.pt, latest.pt, calibration.json, synthetic-test.json, consumption.json and complete.json. Fixture mode explicitly selects a smaller verification configuration.
 

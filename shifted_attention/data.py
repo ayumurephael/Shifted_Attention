@@ -1,7 +1,7 @@
 """Read-only indexed access to the generator's public input and supervision streams."""
 from __future__ import annotations
 
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 import hashlib
 import io
 import json
@@ -16,6 +16,9 @@ from torch.utils.data import Dataset
 FAMILIES = ("linear", "additive", "interaction", "saturating")
 MODES = ("healthy", "process", "observation", "mixed")
 PROFILE = "sster-direct-state-20261125-v1"
+ROUND1_EDITION = "round1-1680k-v1"
+ROUND1_PER_WIDTH = 240_000
+PRODUCTION_WIDTHS = (1,4,8,16,32,64,128)
 DTYPE = np.dtype([("shard", "<u4"), ("io", "<u8"), ("il", "<u4"), ("to", "<u8"),
                   ("tl", "<u4"), ("n", "u1"), ("k", "u1"), ("mode","u1"), ("family","u1"),
                   ("ancestor","<u4"), ("focal","u1"), ("id","S32")])
@@ -30,26 +33,69 @@ def atomic_json(path, payload):
     os.replace(temp, path)
 
 
-def build_index(split):
-    split = Path(split)
-    source = split / "manifest.jsonl"
+def _release_info(split):
     release = json.loads((split/"_SUCCESS").read_text(encoding="utf8"))
     if release["profile"] != PROFILE:
         raise ValueError(f"unexpected corpus profile in {split}")
-    if hashlib.sha256((split/"audit.json").read_bytes()).hexdigest() != release["audit_sha256"]:
+    raw_audit = (split/"audit.json").read_bytes()
+    if hashlib.sha256(raw_audit).hexdigest() != release["audit_sha256"]:
         raise ValueError(f"release audit hash mismatch in {split}")
+    audit = json.loads(raw_audit)
+    edition = release.get("training_edition")
+    if (("training_edition" in release)!=("training_edition" in audit) or edition != audit.get("training_edition")
+            or ("training_edition" in release and edition!=ROUND1_EDITION)):
+        raise ValueError(f"unrecognized or inconsistent training edition in {split}")
+    role=audit.get("split")
+    if edition is not None and (role!="train" or release["smoke"]):
+        raise ValueError(f"training edition applies only to a formal train split: {split}")
+    if not release["smoke"]:
+        if role not in ("train","validation","test") or any(audit.get(k)!=release[k] for k in ("windows","manifest_sha256","profile","smoke")):
+            raise ValueError(f"release marker and audit disagree in {split}")
+        per_width = (ROUND1_PER_WIDTH if edition else 960_000) if role=="train" else 48_000
+        totals=Counter()
+        for n,k,mode,count in audit["cells"]:
+            totals[n]+=count
+        if (release["windows"]!=per_width*len(PRODUCTION_WIDTHS) or
+                totals!={n:per_width for n in PRODUCTION_WIDTHS}):
+            raise ValueError(f"unexpected corpus counts for the production profile in {split}")
+    return release,audit
+
+
+def production_edition(root):
+    """Accept either full training edition only with compatible, authenticated held-out splits."""
+    info=[_release_info(root/name) for name in ("train","validation","test")]
+    if (any(release["smoke"] for release,_ in info) or
+            [audit.get("split") for _,audit in info]!=["train","validation","test"]):
+        raise ValueError("production training requires three formal split releases")
+    calibrations=[audit["calibration_sha256"] for _,audit in info]
+    if (any(not isinstance(sha,str) or len(sha)!=64 or any(c not in "0123456789abcdef" for c in sha)
+            for sha in calibrations) or len(set(calibrations))!=1):
+        raise ValueError("split calibration hashes differ")
+    return info[0][0].get("training_edition")
+
+
+def build_index(split):
+    split = Path(split)
+    source = split / "manifest.jsonl"
+    release,_ = _release_info(split)
+    edition = release.get("training_edition")
     st = source.stat()
     fingerprint = [st.st_size, st.st_mtime_ns, DTYPE.itemsize, release["manifest_sha256"], 3]
+    if edition:
+        fingerprint += [edition,release["audit_sha256"]]
     meta = split / "reader-index.json"
     if meta.exists():
         previous = json.loads(meta.read_text(encoding="utf8"))
         indexed = split / previous["data"]
         if (previous["fingerprint"] == fingerprint and previous["count"] == release["windows"]
+                and previous["manifest_sha256"] == release["manifest_sha256"] and previous.get("training_edition")==edition
+                and previous["data"] == "reader-"+release["manifest_sha256"]+".bin"
                 and indexed.is_file() and indexed.stat().st_size == previous["count"] * DTYPE.itemsize):
             return
     shards = {}
     buffer = []
     digest = hashlib.sha256()
+    widths = Counter()
     count = 0
     with tempfile.NamedTemporaryFile(dir=split, delete=False) as f:
         tmp = Path(f.name)
@@ -58,6 +104,8 @@ def build_index(split):
                 for line in manifest:
                     digest.update(line)
                     r = json.loads(line)
+                    if edition:
+                        widths[r["N"]]+=1
                     path = r["shard"]
                     if Path(path).is_absolute() or ".." in Path(path).parts:
                         raise ValueError("invalid shard path")
@@ -80,20 +128,29 @@ def build_index(split):
                 raise ValueError("empty corpus split")
             if count != release["windows"] or digest.hexdigest() != release["manifest_sha256"]:
                 raise ValueError(f"manifest differs from the verified generator release in {split}")
+            if edition and widths!={n:ROUND1_PER_WIDTH for n in PRODUCTION_WIDTHS}:
+                raise ValueError("manifest channel-width counts disagree with the round-one release")
         except BaseException:
             f.close()
             tmp.unlink(missing_ok=True)
             raise
     name = "reader-" + digest.hexdigest() + ".bin"
     os.replace(tmp, split/name)
-    atomic_json(meta, dict(count=count, data=name, manifest_sha256=digest.hexdigest(),
-                           shards=list(shards),fingerprint=fingerprint))
+    metadata=dict(count=count, data=name, manifest_sha256=digest.hexdigest(),shards=list(shards),fingerprint=fingerprint)
+    if edition:
+        metadata["training_edition"]=edition
+    atomic_json(meta,metadata)
 
 
 class Corpus(Dataset):
     def __init__(self, split):
         self.split = Path(split)
         self.meta = json.loads((self.split/"reader-index.json").read_text(encoding="utf8"))
+        release = json.loads((self.split/"_SUCCESS").read_text(encoding="utf8"))
+        if (self.meta["count"]!=release["windows"] or self.meta["manifest_sha256"]!=release["manifest_sha256"] or
+                self.meta.get("training_edition")!=release.get("training_edition") or
+                self.meta["data"]!="reader-"+release["manifest_sha256"]+".bin"):
+            raise ValueError(f"reader index does not belong to the selected release in {self.split}")
         self.table = np.memmap(self.split/self.meta["data"], mode="r", dtype=DTYPE, shape=(self.meta["count"],))
         self._handles = OrderedDict()
         self._pid = None
